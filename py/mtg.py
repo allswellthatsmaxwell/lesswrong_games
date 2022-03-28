@@ -1,7 +1,9 @@
 from codecs import ignore_errors
+import enum
 import pandas as pd, numpy as np
 from sklearn.model_selection import train_test_split
 from functools import cached_property
+import itertools
 from typing import Tuple, Dict, List
 import lightgbm as lgb
 
@@ -27,6 +29,7 @@ class Splitter:
             dsets[name] = {'X': X, 'y': y}
         return dsets
 
+
 class Datasets:
     def __init__(self, dat, splitter) -> None:
         self.dat = dat
@@ -43,13 +46,16 @@ class Datasets:
             dsets[setname] = lgb.Dataset(matrices['X'], label=matrices['y'])
         return dsets
 
+
 class PastGames:
     response_name = 'Deck_A_Win?'
     ignore_cols = ['Game ID', 'Deck_B_Win?']
 
-    def __init__(self, datapath = "../data/mtg_output.csv", splitter=None) -> None:
+    def __init__(self, datapath = "../data/mtg_output.csv", 
+                 splitter=None) -> None:
         if splitter is None:
-            splitter = Splitter(response_name=self.response_name, ignore_cols=self.ignore_cols)
+            splitter = Splitter(response_name=self.response_name, 
+                                ignore_cols=self.ignore_cols)
         self.dat = pd.read_csv(datapath)
         self.dsets = Datasets(self.dat, splitter)
 
@@ -58,3 +64,26 @@ class PastGames:
         return [c.replace("_Deck_A_Count", "") 
                 for c in self.dat.columns 
                 if 'Deck_A' in c and '?' not in c]
+    
+    @cached_property
+    def idxs_to_cards(self):
+        return dict([(i, card) for i, card in enumerate(self.cards)])
+
+    @cached_property    
+    def cards_to_idxs(self):
+        return dict([(card, i) for i, card in enumerate(self.cards)])
+
+
+
+class RivalDecks:
+    def __init__(self, past_games: PastGames) -> None:
+        self.past_games = past_games
+
+    @cached_property
+    def decks(self):
+        all_decks_idx_list = list(itertools.permutations(
+            self.past_games.idxs_to_cards.keys()))
+        return pd.DataFrame(all_decks_idx_list, columns=self.past_games.cards)
+        
+
+    
