@@ -80,30 +80,41 @@ class PossibleDecks:
         self.ncards = len(self.past_games.cards)
 
     @cached_property
-    def decks(self):
+    def decks(self) -> pd.DataFrame:
         nchoices = self.ncards
         ncards = self.ncards
-        return self._decks(nchoices, ncards, 1)
+        self.deckset = DeckSet()
+        self._decks(nchoices, ncards - 1, [0])
+        return pd.DataFrame(self.deckset.decks, columns=self.past_games.cards)
 
-    def _decks(self, budget: int, characters_remaining: int, curr_character_count: int):
-        ## Base cases
+    def _decks(self, budget: int, characters_remaining: int, curr_deck: List[int]):        
+        if (characters_remaining == 0 & budget > 0) or budget < 0 or characters_remaining < 0:
+            return 
         # If the deck is full, we get 0 of the remaining positions filled
-        #if characters_remaining == 0 & budget > 0:
-        #    raise ValueError(f"Got through all the characters, but still have budget {budget}.")
-        if budget == 0:
-            return [0] * characters_remaining
-        # If we've gone through all the characters
-        elif characters_remaining == 0:
-            return []
+        elif budget == 0:
+            self.deckset.add(curr_deck + [0]*characters_remaining)
         else:
             # spend a budget point here; advance characters
-            subdecks1 = [1] + self._decks(budget - 1, characters_remaining - 1, 0)
+            updated_deck1 = curr_deck + [1]
+            self._decks(budget - 1, characters_remaining - 1, updated_deck1)
             # spend a budget point here; do not advance characters
-            subdecks2 = [1] + self._decks(budget - 1, characters_remaining, 1)
+            updated_deck2 = curr_deck.copy()
+            updated_deck2[-1] += 1
+            self._decks(budget - 1, characters_remaining, updated_deck2)
             # don't spend a budget point here; advance characters
-            subdecks3 = [0] + self._decks(budget, characters_remaining - 1, 0)
-            return subdecks1 + subdecks2 + subdecks3
+            self._decks(budget, characters_remaining - 1, curr_deck + [0])
             
+
+class DeckSet:
+    def __init__(self) -> None:
+        self.deckstrs = set()
+
+    def add(self, deck: List[int]):
+        self.deckstrs.add("_".join([str(s) for s in deck]))    
+
+    @cached_property
+    def decks(self):
+        return [s.split('_') for s in self.deckstrs]
 
 
 
