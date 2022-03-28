@@ -12,7 +12,7 @@ class Splitter:
         self.tst = tst
         self.valtst = self.val + self.tst
         self.response_name = response_name
-        self.ignore_cols = []
+        self.ignore_cols = ignore_cols
 
     def split_into_frames(self, dat) -> Dict[str, pd.DataFrame]:
         trn, valtst = train_test_split(dat, train_size=self.trn, test_size=self.valtst)
