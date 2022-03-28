@@ -81,9 +81,11 @@ class PossibleDecks:
 
     @cached_property
     def decks(self):
-        pass
+        nchoices = self.ncards
+        ncards = self.ncards
+        return self._decks(nchoices, ncards, 1)
 
-    def _decks(self, budget: int, characters_remaining: int):
+    def _decks(self, budget: int, characters_remaining: int, curr_character_count: int):
         ## Base cases
         # If the deck is full, we get 0 of the remaining positions filled
         #if characters_remaining == 0 & budget > 0:
@@ -94,14 +96,14 @@ class PossibleDecks:
         elif characters_remaining == 0:
             return []
         else:
-            # spend a point here
-            # <code>
-            # don't spend a point here
-            # <code>
-            # We'll also need code that spends a budget point but does not advance
-            # the character position, to allow picking multiple cards of the same character. 
-        
-
+            # spend a budget point here; advance characters
+            subdecks1 = [1] + self._decks(budget - 1, characters_remaining - 1, 0)
+            # spend a budget point here; do not advance characters
+            subdecks2 = [1] + self._decks(budget - 1, characters_remaining, 1)
+            # don't spend a budget point here; advance characters
+            subdecks3 = [0] + self._decks(budget, characters_remaining - 1, 0)
+            return subdecks1 + subdecks2 + subdecks3
+            
 
 
 
