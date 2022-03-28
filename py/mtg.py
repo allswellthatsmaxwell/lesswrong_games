@@ -74,16 +74,46 @@ class PastGames:
         return dict([(card, i) for i, card in enumerate(self.cards)])
 
 
+class PossibleDecks:
+    def __init__(self, past_games: PastGames) -> None:
+        self.past_games = past_games
+        self.ncards = len(self.past_games.cards)
 
-class RivalDecks:
+    @cached_property
+    def decks(self):
+        pass
+
+    def _decks(self, budget: int, characters_remaining: int):
+        ## Base cases
+        # If the deck is full, we get 0 of the remaining positions filled
+        #if characters_remaining == 0 & budget > 0:
+        #    raise ValueError(f"Got through all the characters, but still have budget {budget}.")
+        if budget == 0:
+            return [0] * characters_remaining
+        # If we've gone through all the characters
+        elif characters_remaining == 0:
+            return []
+        else:
+            # spend a point here
+            # <code>
+            # don't spend a point here
+            # <code>
+            # We'll also need code that spends a budget point but does not advance
+            # the character position, to allow picking multiple cards of the same character. 
+        
+
+
+
+
+class RivalDeck:
     def __init__(self, past_games: PastGames) -> None:
         self.past_games = past_games
 
     @cached_property
-    def decks(self):
-        all_decks_idx_list = list(itertools.permutations(
-            self.past_games.idxs_to_cards.keys()))
-        return pd.DataFrame(all_decks_idx_list, columns=self.past_games.cards)
+    def deck(self):
+        dat = pd.DataFrame([1] * len(self.past_games.idxs_to_cards)).transpose() 
+        dat.columns = self.past_games.cards
+        return dat
         
 
     
