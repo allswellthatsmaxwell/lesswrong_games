@@ -6,6 +6,7 @@ from functools import cached_property
 import itertools
 from typing import Tuple, Dict, List
 import lightgbm as lgb
+from scipy.special import comb
 
 class Splitter:
     def __init__(self, response_name: str, trn=0.8, val=0.1, tst=0.1, ignore_cols=[]) -> None:
@@ -78,14 +79,15 @@ class PossibleDecks:
     def __init__(self, past_games: PastGames) -> None:
         self.past_games = past_games
         self.ncards = len(self.past_games.cards)
-
-    @cached_property
-    def decks(self) -> pd.DataFrame:
+    
+    def generate_decks(self) -> pd.DataFrame:
         nchoices = self.ncards
         ncards = self.ncards
         self.deckset = DeckSet()
         self._decks(nchoices, ncards - 1, [0])
-        return pd.DataFrame(self.deckset.decks, columns=self.past_games.cards)
+        decks = pd.DataFrame(self.deckset.decks, columns=self.past_games.cards)
+        assert decks.shape[0] == comb(nchoices, ncards, repetition=True, exact=True)
+        return decks
 
     def _decks(self, budget: int, characters_remaining: int, curr_deck: List[int]):        
         if (characters_remaining == 0 & budget > 0) or budget < 0 or characters_remaining < 0:
@@ -95,8 +97,7 @@ class PossibleDecks:
             self.deckset.add(curr_deck + [0]*characters_remaining)
         else:
             # spend a budget point here; advance characters
-            updated_deck1 = curr_deck + [1]
-            self._decks(budget - 1, characters_remaining - 1, updated_deck1)
+            self._decks(budget - 1, characters_remaining - 1,  curr_deck + [1])
             # spend a budget point here; do not advance characters
             updated_deck2 = curr_deck.copy()
             updated_deck2[-1] += 1
