@@ -74,11 +74,23 @@ class PastGames:
 
 
 class PossibleDecks:
+    cache_path = '../cache/possible_games.csv.gz'
+
     def __init__(self, past_games: PastGames) -> None:
         self.past_games = past_games
         self.ncards = len(self.past_games.cards)
+
+    def get_decks(self):
+        try:
+            return pd.read_csv(self.cache_path)
+        except FileNotFoundError:
+            print(f"Didn't find {self.cache_path}; generating decks from scratch.")
+            decks = self._get_decks()
+            decks.to_csv(self.cache_path, compression='gzip', index=False)
+            return decks
+
     
-    def generate_decks(self) -> pd.DataFrame:
+    def _get_decks(self) -> pd.DataFrame:
         nchoices = self.ncards
         ncards = self.ncards
         self.deckset = DeckSet()
@@ -145,7 +157,8 @@ class DeckDefeater:
                                    for c in self.rival_deck.columns]
         possible_games = (
             pd.merge(self.possible_decks.assign(k='k'), 
-                     self.rival_deck.assign(k='k'), on='k')
+                     self.rival_deck.assign(k='k'), 
+                     on='k')
             .drop('k', axis=1)
             .astype(int))
         return possible_games
