@@ -167,13 +167,17 @@ class DeckDefeater:
 
     @cached_property
     def best_deck_str(self):
-        best_deck_against_rival = (
-            self.possible_decks_and_predictions
-            .iloc[0][self.possible_decks.columns]
+        best_matchup = self.possible_decks_and_predictions.iloc[0]
+        best_deck = (
+            best_matchup
+            [self.possible_decks.columns]
             .astype(int)
             .reset_index())
-        best_deck_against_rival.columns = ['card', 'n']
-        return '\n'.join(best_deck_against_rival.apply(lambda r: f"{r['card']}: {r['n']}", axis=1))
+        best_deck.columns = ['card', 'n']
+        win_proba = best_matchup['p']
+        return (
+            '\n'.join(best_deck.apply(lambda r: f"{r['card']}: {r['n']}", axis=1)) +
+            '\n\n' + f"win probability: {win_proba:.0%}")
 
     
         
