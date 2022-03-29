@@ -88,7 +88,6 @@ class PossibleDecks:
             decks = self._get_decks()
             decks.to_csv(self.cache_path, compression='gzip', index=False)
             return decks
-
     
     def _get_decks(self) -> pd.DataFrame:
         nchoices = self.ncards
@@ -192,7 +191,38 @@ class DeckDefeater:
             '\n'.join(best_deck.apply(lambda r: f"{r['card']}: {r['n']}", axis=1)) +
             '\n\n' + f"win probability: {win_proba:.0%}")
 
-    
+
+class GameScorer:
+    def __init__(self, possible_decks: pd.DataFrame, model) -> None:
+        self.possible_decks = possible_decks
+        self.model = model
+        self.positive_class_idx = np.argmax(model.classes_)
+        self.possible_decks_opponent = possible_decks.copy()
+        self.possible_decks_opponent.columns = [
+            c.replace('A_Count', 'B_Count') 
+            for c in self.possible_decks_opponent.columns]
+
+    def score_chunks(self, chunk_nrow: int, max_chunks: int) -> pd.DataFrame:
+        chunk_row_starts = range(0, self.possible_decks_opponent.shape[0], chunk_nrow)
+        chunk_row_starts = list(chunk_row_starts[:max_chunks])
+        chunks = []
+        for chunk_row_start in chunk_row_starts:
+            chunk = self._score_chunk(chunk_row_start, chunk_nrow)
+            chunks.append(chunk)
+        return pd.concat(chunks)
+
+    def _score_chunk(self, chunk_row_start: int, chunk_nrow: int) -> pd.DataFrame:
+        possible_decks_opponent_chunk = self.possible_decks_opponent.iloc[
+            chunk_row_start:(chunk_row_start + chunk_nrow), 
+            :]
+        print(possible_decks_opponent_chunk.shape)
+        possible_matches_chunk = pd.merge(
+            self.possible_decks.assign(k='k'), 
+            possible_decks_opponent_chunk.assign(k='k'),
+            on='k').drop('k', axis=1)
+        pred = self.model.predict_proba(possible_matches_chunk)[:, self.positive_class_idx]
+        possible_matches_chunk['p'] = pred
+        return possible_matches_chunk
         
 
 class CalibrationAnalyzer:
