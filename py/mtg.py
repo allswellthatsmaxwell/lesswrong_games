@@ -5,7 +5,7 @@ import plotnine as pn
 from typing import Tuple, Dict, List
 import lightgbm as lgb
 from scipy.special import comb
-
+import os
 
 class Splitter:
     def __init__(self, response_name: str, trn=0.8, val=0.1, tst=0.1, ignore_cols=[]) -> None:
@@ -17,8 +17,10 @@ class Splitter:
         self.ignore_cols = ignore_cols
 
     def split_into_frames(self, dat) -> Dict[str, pd.DataFrame]:
-        trn, valtst = train_test_split(dat, train_size=self.trn, test_size=self.valtst)
-        val, tst = train_test_split(valtst, train_size=self.trn, test_size=self.valtst)
+        trn, valtst = train_test_split(dat, train_size=self.trn, test_size=self.valtst,
+                                       random_state=12)
+        val, tst = train_test_split(valtst, train_size=self.trn, test_size=self.valtst, 
+                                    random_state=12)
         return {'trn': trn, 'val': val, 'tst': tst}
 
     def split_into_Xy(self, dat) -> Dict[str, Dict[str, np.ndarray]]:        
@@ -202,20 +204,37 @@ def cross_join(a, b):
 def _concat_row(r: pd.Series) -> str:
     return "_".join([str(x) for x in r])
 
+
+def _assign_game_id(decks) -> None:
+    decks['game_id'] = (
+        decks
+        .drop('game_id', axis=1, errors='ignore')
+        .apply(_concat_row, axis=1))
+
+
 class GameScorer:
+    saved_scores_fpath = '../cache/saved_whole_universe_decks.csv'
+
     def __init__(self, possible_decks: pd.DataFrame, model) -> None:
         self.possible_decks = possible_decks
         self.model = model
         self.positive_class_idx = np.argmax(model.classes_)
-        self.possible_decks_opponent = possible_decks.drop('game_id', errors='ignore', axis=1)
-        self.possible_decks_opponent.columns = [
+        self.possible_decks_opponent = self.get_possible_opponent_decks()
+        _assign_game_id(self.possible_decks)
+        self._remove_already_checked_game_ids()
+
+    def _remove_already_checked_game_ids(self) -> None:
+        if os.path.exists(self.saved_scores_fpath):
+            already_checked_ids = pd.read_csv(self.saved_scores_fpath)['game_id']
+            self.possible_decks = self.possible_decks[
+                ~self.possible_decks['game_id'].isin(already_checked_ids)]
+
+    def get_possible_opponent_decks(self):
+        possible_decks_opponent = self.possible_decks.drop('game_id', errors='ignore', axis=1)
+        possible_decks_opponent.columns = [
             c.replace('A_Count', 'B_Count') 
-            for c in self.possible_decks_opponent.columns]
-        self.possible_decks['game_id'] = (
-            possible_decks
-            .drop('game_id', axis=1, errors='ignore')
-            .apply(_concat_row, axis=1))
-        self.decks_to_avg_probas = {}      
+            for c in possible_decks_opponent.columns]
+        return possible_decks_opponent
 
     def score_chunks(self, chunk_nrow: int, max_chunks: int) -> pd.DataFrame:
         chunk_row_starts = range(0, self.possible_decks_opponent.shape[0], chunk_nrow)
@@ -224,7 +243,17 @@ class GameScorer:
         for chunk_row_start in chunk_row_starts:
             chunk = self._get_avg_score_chunk(chunk_row_start, chunk_nrow)
             chunks.append(chunk)
-        return pd.concat(chunks)
+            self.record_score_for_chunk(chunk)
+        chunk_dat = pd.concat(chunks)        
+        return chunk_dat
+
+    def record_score_for_chunk(self, scored_chunk: pd.DataFrame) -> None:
+        if not os.path.exists(self.saved_scores_fpath):
+            with open(self.saved_scores_fpath, 'w+') as f:
+                f.write("game_id,p_avg\n")
+        with open(self.saved_scores_fpath, 'a') as f:
+            for r in scored_chunk.itertuples():
+                f.write(f"{r.game_id},{r.p_avg:.5f}\n")
 
     def _score_all_matches_chunk(self, chunk_row_start: int, 
                                  chunk_nrow: int) -> pd.DataFrame:
@@ -260,7 +289,8 @@ class CalibrationAnalyzer:
     def buckets_dat(self):
         return (
             pd.merge(
-                self.dat.groupby('bucket').agg({'y': np.mean, 'pred': np.mean}).reset_index(),
+                self.dat.groupby('bucket').agg({'y': np.mean, 
+                                                'pred': np.mean}).reset_index(),
                 self.dat.groupby('bucket').agg({'y': len}).reset_index(),
                 on='bucket')
             .rename({'y_x': 'y_true', 'y_y': 'n'}, axis=1))
