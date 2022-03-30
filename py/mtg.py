@@ -6,6 +6,7 @@ from typing import Tuple, Dict, List
 import lightgbm as lgb
 from scipy.special import comb
 
+
 class Splitter:
     def __init__(self, response_name: str, trn=0.8, val=0.1, tst=0.1, ignore_cols=[]) -> None:
         self.trn = trn
@@ -192,38 +193,56 @@ class DeckDefeater:
             '\n\n' + f"win probability: {win_proba:.0%}")
 
 
+def cross_join(a, b):
+    return pd.merge(a.assign(k='k'),
+                    b.assign(k='k'), 
+                    on='k').drop('k', axis=1)
+
+
+def _concat_row(r: pd.Series) -> str:
+    return "_".join([str(x) for x in r])
+
 class GameScorer:
     def __init__(self, possible_decks: pd.DataFrame, model) -> None:
         self.possible_decks = possible_decks
         self.model = model
         self.positive_class_idx = np.argmax(model.classes_)
-        self.possible_decks_opponent = possible_decks.copy()
+        self.possible_decks_opponent = possible_decks.drop('game_id', errors='ignore', axis=1)
         self.possible_decks_opponent.columns = [
             c.replace('A_Count', 'B_Count') 
             for c in self.possible_decks_opponent.columns]
+        self.possible_decks['game_id'] = (
+            possible_decks
+            .drop('game_id', axis=1, errors='ignore')
+            .apply(_concat_row, axis=1))
+        self.decks_to_avg_probas = {}      
 
     def score_chunks(self, chunk_nrow: int, max_chunks: int) -> pd.DataFrame:
         chunk_row_starts = range(0, self.possible_decks_opponent.shape[0], chunk_nrow)
         chunk_row_starts = list(chunk_row_starts[:max_chunks])
         chunks = []
         for chunk_row_start in chunk_row_starts:
-            chunk = self._score_chunk(chunk_row_start, chunk_nrow)
+            chunk = self._get_avg_score_chunk(chunk_row_start, chunk_nrow)
             chunks.append(chunk)
         return pd.concat(chunks)
 
-    def _score_chunk(self, chunk_row_start: int, chunk_nrow: int) -> pd.DataFrame:
-        possible_decks_opponent_chunk = self.possible_decks_opponent.iloc[
-            chunk_row_start:(chunk_row_start + chunk_nrow), 
-            :]
-        print(possible_decks_opponent_chunk.shape)
-        possible_matches_chunk = pd.merge(
-            self.possible_decks.assign(k='k'), 
-            possible_decks_opponent_chunk.assign(k='k'),
-            on='k').drop('k', axis=1)
-        pred = self.model.predict_proba(possible_matches_chunk)[:, self.positive_class_idx]
-        possible_matches_chunk['p'] = pred
-        return possible_matches_chunk
+    def _score_all_matches_chunk(self, chunk_row_start: int, 
+                                 chunk_nrow: int) -> pd.DataFrame:
+        possible_deckA_chunk = self.possible_decks.iloc[
+            chunk_row_start:(chunk_row_start + chunk_nrow), :]
+        possible_matches_chunk = cross_join(possible_deckA_chunk,
+                                            self.possible_decks_opponent)
+        X = possible_matches_chunk.drop('game_id', axis=1)
+        pred = self.model.predict_proba(X)[:, self.positive_class_idx]
+        return possible_matches_chunk.assign(p=pred)
         
+    def _get_avg_score_chunk(self, chunk_row_start: int, chunk_nrow: int) -> pd.DataFrame:
+        return (
+            self._score_all_matches_chunk(chunk_row_start, chunk_nrow)
+            .groupby('game_id')
+            ['p'].mean()
+            .reset_index(name='p_avg'))
+
 
 class CalibrationAnalyzer:
     def __init__(self, y, pred, bucket_span=5) -> None:
