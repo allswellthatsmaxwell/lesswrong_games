@@ -75,6 +75,15 @@ class PastGames:
     def cards_to_idxs(self):
         return dict([(card, i) for i, card in enumerate(self.cards)])
 
+    @property
+    def decksA(self):
+        return self.dat[[col for col in self.dat.columns if 'Deck_A_Count' in col]]
+
+    def deck_from_game_id(self, game_id: str):
+        dat = pd.DataFrame([int(x) for x in game_id.split('_')]).transpose()
+        dat.columns = self.cards
+        return dat
+
 
 class PossibleDecks:
     cache_path = '../cache/possible_games.csv.gz'
@@ -213,9 +222,11 @@ def _assign_game_id(decks) -> None:
 
 
 class GameScorer:
-    saved_scores_fpath = '../cache/saved_whole_universe_decks.csv'
+    saved_scores_fpath = '../cache/DIFFERENTIATOR_saved_decks.csv'
 
-    def __init__(self, possible_decks: pd.DataFrame, model) -> None:
+    def __init__(self, possible_decks: pd.DataFrame, model, differentiator: str) -> None:
+        self.saved_scores_fpath = self.saved_scores_fpath.replace(
+            'DIFFERENTIATOR', differentiator)
         self.possible_decks = possible_decks
         self.model = model
         self.positive_class_idx = np.argmax(model.classes_)
@@ -241,11 +252,18 @@ class GameScorer:
         chunk_row_starts = list(chunk_row_starts[:max_chunks])
         chunks = []
         for chunk_row_start in chunk_row_starts:
-            chunk = self._get_avg_score_chunk(chunk_row_start, chunk_nrow)
+            chunk_decks = self.possible_decks.iloc[
+                chunk_row_start:(chunk_row_start + chunk_nrow), :]
+            chunk = self._get_avg_score(chunk_decks)
             chunks.append(chunk)
             self.record_score_for_chunk(chunk)
         chunk_dat = pd.concat(chunks)        
         return chunk_dat
+
+    def score_deck(self, deck: pd.DataFrame):
+        deck = deck.copy()
+        _assign_game_id(deck)
+        return self._get_avg_score(deck)
 
     def record_score_for_chunk(self, scored_chunk: pd.DataFrame) -> None:
         if not os.path.exists(self.saved_scores_fpath):
@@ -255,19 +273,30 @@ class GameScorer:
             for r in scored_chunk.itertuples():
                 f.write(f"{r.game_id},{r.p_avg:.5f}\n")
 
-    def _score_all_matches_chunk(self, chunk_row_start: int, 
-                                 chunk_nrow: int) -> pd.DataFrame:
-        possible_deckA_chunk = self.possible_decks.iloc[
-            chunk_row_start:(chunk_row_start + chunk_nrow), :]
+    @property
+    def best_row(self):
+        return (
+            pd.read_csv(self.saved_scores_fpath)
+            .sort_values('p_avg', ascending=False)
+            .iloc[0])
+
+    @property
+    def best_deck(self):
+        return self.best_row['game_id']
+
+    def best_score(self):
+        return self.best_row['p_avg']
+
+    def _score_all_matches_chunk(self, possible_deckA_chunk: pd.DataFrame) -> pd.DataFrame:
         possible_matches_chunk = cross_join(possible_deckA_chunk,
                                             self.possible_decks_opponent)
         X = possible_matches_chunk.drop('game_id', axis=1)
         pred = self.model.predict_proba(X)[:, self.positive_class_idx]
         return possible_matches_chunk.assign(p=pred)
         
-    def _get_avg_score_chunk(self, chunk_row_start: int, chunk_nrow: int) -> pd.DataFrame:
+    def _get_avg_score(self, decks: pd.DataFrame) -> pd.DataFrame:
         return (
-            self._score_all_matches_chunk(chunk_row_start, chunk_nrow)
+            self._score_all_matches_chunk(decks)
             .groupby('game_id')
             ['p'].mean()
             .reset_index(name='p_avg'))
