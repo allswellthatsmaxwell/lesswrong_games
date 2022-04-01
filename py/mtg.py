@@ -6,6 +6,12 @@ from typing import Tuple, Dict, List
 import lightgbm as lgb
 from scipy.special import comb
 import os
+import pickle as pkl
+
+
+LGB_PARAMS = {'objective': 'binary', 'num_leaves': 32,
+              'l2_lambda': 0.3, 'max_depth': -1}
+
 
 class Splitter:
     def __init__(self, response_name: str, trn=0.8, val=0.1, tst=0.1, ignore_cols=[]) -> None:
@@ -83,6 +89,44 @@ class PastGames:
         dat = pd.DataFrame([int(x) for x in game_id.split('_')]).transpose()
         dat.columns = self.cards
         return dat
+        
+    def read_or_train_model_all_data(
+            self, all_data_model_fpath, split_data_model_fpath):        
+        try:
+            with open(all_data_model_fpath, 'rb') as f:
+                model = pkl.load(f)    
+        except FileNotFoundError:
+            split_model = self.read_or_train_model_split_data(split_data_model_fpath)
+            rounds = split_model.best_iteration_    
+            model = lgb.LGBMClassifier(**LGB_PARAMS, num_boost_round=rounds, 
+                                       random_state=12)
+            sets = self.dsets.sets
+            X = pd.concat([sets['trn']['X'], 
+                           sets['val']['X'], 
+                           sets['tst']['X']])
+            y = np.concatenate([sets['trn']['y'],
+                                sets['val']['y'], 
+                                sets['tst']['y']])
+            
+            model.fit(X, y, eval_set=[(X, y)])
+            with open(all_data_model_fpath, 'wb') as f:
+                pkl.dump(model, f)
+        return model
+
+    def read_or_train_model_split_data(self, model_fpath):
+        try:
+            with open(model_fpath, 'rb') as f:
+                model = pkl.load(f)    
+        except FileNotFoundError:            
+            model = lgb.LGBMClassifier(**LGB_PARAMS, num_boost_round=1000, 
+                                       random_state=12)
+            trn, val = self.dsets.sets['trn'], self.dsets.sets['val']
+            model.fit(**self.dsets.sets['trn'], 
+                    eval_set=[(trn['X'], trn['y']), (val['X'], val['y'])],
+                    early_stopping_rounds=30)
+            with open(model_fpath, 'wb') as f:
+                pkl.dump(model, f)
+        return model
 
 
 class PossibleDecks:
@@ -188,6 +232,20 @@ class DeckDefeater:
     @cached_property
     def mean_win_proba(self):
         return self.possible_decks_and_predictions['p'].mean()
+
+    @cached_property
+    def best_deck(self):
+        best_matchup = self.possible_decks_and_predictions.iloc[0]
+        best_deck = (
+            best_matchup
+            [self.possible_decks.columns]
+            .astype(int)
+            .reset_index())
+        best_deck.columns = ['card', 'n']
+        cards, counts = best_deck['card'], best_deck['n']
+        dat = pd.DataFrame(counts).transpose()
+        dat.columns = cards
+        return dat
 
     @cached_property
     def best_deck_str(self):
@@ -342,3 +400,5 @@ class CalibrationAnalyzer:
                      axis_text_y=pn.element_text(size=8), 
                      axis_text_x=pn.element_text(angle=0, size=6.5))                     
         )
+
+
